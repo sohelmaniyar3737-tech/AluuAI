@@ -1,0 +1,21 @@
+{
+  "name": "AluuAI",
+  "short_name": "AluuAI",
+  "description": "Your intelligent AI assistant for conversations, coding help, and creative tasks.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f0a1a",
+  "theme_color": "#7c3aed",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
