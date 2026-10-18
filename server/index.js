@@ -14,6 +14,7 @@ const { Pool } = pg;
 const app = express();
 app.set('trust proxy', 1);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const distDir = path.resolve(__dirname, '../dist');
 const uploadsDir = path.resolve(process.env.UPLOADS_DIR || 'uploads');
 fs.mkdirSync(uploadsDir, { recursive: true });
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false } });
@@ -81,5 +82,15 @@ app.get('/api/preferences',auth,asyncRoute(async(req,res)=>{const r=await pool.q
 app.put('/api/preferences',auth,asyncRoute(async(req,res)=>{const theme=['light','dark'].includes(req.body.theme)?req.body.theme:'light',language=['en','hi'].includes(req.body.language)?req.body.language:'en';const r=await pool.query('INSERT INTO user_preferences(user_id,theme,language) VALUES($1,$2,$3) ON CONFLICT(user_id) DO UPDATE SET theme=EXCLUDED.theme,language=EXCLUDED.language,updated_at=NOW() RETURNING theme,language',[req.user.id,theme,language]);res.json(r.rows[0]);}));
 app.get('/api/feedback',auth,asyncRoute(async(req,res)=>{const r=await pool.query('SELECT message_id,type FROM feedback WHERE user_id=$1',[req.user.id]);res.json(r.rows);}));
 app.put('/api/feedback/:messageId',auth,asyncRoute(async(req,res)=>{const type=req.body.type;if(!['like','dislike'].includes(type))return res.status(400).json({error:'Invalid feedback type'});const existing=await pool.query('SELECT id,type FROM feedback WHERE user_id=$1 AND message_id=$2',[req.user.id,req.params.messageId]);if(existing.rowCount&&existing.rows[0].type===type){await pool.query('DELETE FROM feedback WHERE id=$1',[existing.rows[0].id]);return res.json({removed:true});}const r=await pool.query('INSERT INTO feedback(user_id,message_id,type) VALUES($1,$2,$3) ON CONFLICT(message_id,user_id) DO UPDATE SET type=EXCLUDED.type RETURNING message_id,type',[req.user.id,req.params.messageId,type]);res.json(r.rows[0]);}));
+// Serve the AluuAI frontend in production
+app.use(express.static(distDir));
+
+app.get(/.*/, (req, res, next) => {
+  if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
+    return next();
+  }
+
+  res.sendFile(path.join(distDir, 'index.html'));
+});
 app.use((err,_req,res,_next)=>{console.error(err);if(err instanceof multer.MulterError)return res.status(400).json({error:err.message});res.status(500).json({error:err.message||'Unexpected server error.'});});
 app.listen(PORT,'0.0.0.0',()=>console.log(`AluuAI API listening on ${PORT}`));
