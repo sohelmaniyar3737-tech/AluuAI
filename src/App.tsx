@@ -1,19 +1,30 @@
+import GuestChat from "./pages/GuestChat";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+} from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import Index from "./pages/IndexNew";
 import Auth from "./pages/AuthNew";
 import Settings from "./pages/Settings";
+import Landing from "./pages/Landing";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient();
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
+function ProtectedRoute({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const { isAuthenticated, loading } = useAuth();
 
   if (loading) {
@@ -31,7 +42,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function AuthRoute({ children }: { children: React.ReactNode }) {
+function AuthRoute({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const { isAuthenticated, loading } = useAuth();
 
   if (loading) {
@@ -43,7 +58,7 @@ function AuthRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (isAuthenticated) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/chat" replace />;
   }
 
   return <>{children}</>;
@@ -52,6 +67,10 @@ function AuthRoute({ children }: { children: React.ReactNode }) {
 function AppContent() {
   return (
     <Routes>
+      <Route path="/" element={<Landing />} />
+
+      <Route path="/try" element={<GuestChat />} />
+
       <Route
         path="/auth"
         element={
@@ -60,14 +79,16 @@ function AppContent() {
           </AuthRoute>
         }
       />
+
       <Route
-        path="/"
+        path="/chat"
         element={
           <ProtectedRoute>
             <Index />
           </ProtectedRoute>
         }
       />
+
       <Route
         path="/settings"
         element={
@@ -76,6 +97,7 @@ function AppContent() {
           </ProtectedRoute>
         }
       />
+
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

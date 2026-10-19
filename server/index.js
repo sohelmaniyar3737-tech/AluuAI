@@ -1,3 +1,4 @@
+import rateLimit from 'express-rate-limit';
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
@@ -25,6 +26,15 @@ app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' }, contentS
 app.use(cors({ origin: allowedOrigin === '*' ? true : allowedOrigin.split(',').map(s => s.trim()), credentials: true }));
 app.use(express.json({ limit: '2mb' }));
 app.use('/uploads', express.static(uploadsDir));
+const guestChatLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  limit: 10,                 // Maximum 10 requests per IP
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: {
+    error: 'Too many guest messages. Please try again in 10 minutes.',
+  },
+});
 
 function auth(req, res, next) {
   const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
@@ -73,6 +83,86 @@ app.post('/api/chat',auth,asyncRoute(async(req,res)=>{
  const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${key}`},body:JSON.stringify({model,messages,temperature:0.7})});
  const data=await response.json().catch(()=>({}));if(!response.ok)return res.status(502).json({error:data.error?.message||'AI provider request failed. Check the AI key and model settings.'});
  const reply=data.choices?.[0]?.message?.content;if(typeof reply!=='string')return res.status(502).json({error:'AI provider returned an unexpected response.'});res.json({reply});
+}));
+// Guest chat: no account required
+app.post('/api/guest-chat', guestChatLimiter, asyncRoute(async (req, res) => {
+  const message = String(req.body.message || '').trim();
+
+  if (!message) {
+    return res.status(400).json({ error: 'Message is required.' });
+  }
+
+  if (message.length > 2000) {
+    return res.status(400).json({ error: 'Message is too long.' });
+  }
+
+  const key = process.env.AI_API_KEY;
+  const endpoint =
+    process.env.AI_BASE_URL ||
+    'https://api.openai.com/v1/chat/completions';
+  const model = process.env.AI_MODEL || 'gpt-4o-mini';
+
+  if (!key) {
+    return res.status(503).json({
+      error: 'AI service is not configured.',
+    });
+  }
+
+  const history = Array.isArray(req.body.conversationHistory)
+    ? req.body.conversationHistory.slice(-10)
+    : [];
+
+  const messages = [
+    {
+      role: 'system',
+      content:
+        'You are AluuAI, a friendly, helpful AI assistant. Be clear and concise. Match the user language, including Hindi or Hinglish when appropriate.',
+    },
+    ...history
+      .filter(
+        (m) =>
+          ['user', 'assistant'].includes(m.role) &&
+          typeof m.content === 'string'
+      )
+      .map((m) => ({
+        role: m.role,
+        content: m.content.slice(0, 2000),
+      })),
+    { role: 'user', content: message },
+  ];
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.7,
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    console.error('Guest AI provider request failed:', response.status);
+
+    return res.status(502).json({
+      error: 'The AI service could not answer right now. Please try again.',
+    });
+  }
+
+  const reply = data.choices?.[0]?.message?.content;
+
+  if (typeof reply !== 'string') {
+    return res.status(502).json({
+      error: 'The AI service returned an unexpected response.',
+    });
+  }
+
+  res.json({ reply });
 }));
 const storage=multer({storage:multer.diskStorage({destination:(_req,_file,cb)=>cb(null,uploadsDir),filename:(_req,file,cb)=>cb(null,`${Date.now()}-${Math.random().toString(36).slice(2)}${path.extname(file.originalname).slice(0,10)}`)}),limits:{fileSize:10*1024*1024},fileFilter:(_req,file,cb)=>{const ok=['image/jpeg','image/png','image/webp','application/pdf','text/plain','application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(file.mimetype);cb(ok?null:new Error('Unsupported file type.'),ok);}});
 app.post('/api/uploads',auth,storage.single('file'),asyncRoute(async(req,res)=>{if(!req.file)return res.status(400).json({error:'Select a file to upload.'});const chatId=String(req.body.chatId||'');if(chatId&&!(await ownsChat(req.user.id,chatId)).rowCount){fs.unlinkSync(req.file.path);return res.status(404).json({error:'Chat not found'});}const fileType=req.file.mimetype.startsWith('image/')?'image':'document';const fileUrl=`${req.protocol}://${req.get('host')}/uploads/${encodeURIComponent(req.file.filename)}`;const r=await pool.query('INSERT INTO attachments(user_id,chat_id,file_url,file_type,file_name,file_size) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',[req.user.id,chatId||null,fileUrl,fileType,req.file.originalname,req.file.size]);res.status(201).json(r.rows[0]);}));
